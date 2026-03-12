@@ -1,14 +1,4 @@
-[package]
-name = "hoarder"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-io-uring = { version = "0.7.11", features = [] }
-libc = "0.2.182"
-log = { version = "0.4.29", features = ["release_max_level_off"] }
-rustix = { version = "1.1.4", default-features = false, features = ["libc", "libc_errno", "net"]}
-thiserror = "2.0.18"
-env_logger = "0.11.9"
-zerocopy = { version = "0.8.42", features = ["derive"] }
-zerocopy-derive = "0.8.42"
+[workspace]
+members = [
+    "hoarder-blob",
+]
