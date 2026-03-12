@@ -1,4 +1,5 @@
 use thiserror::Error;
+pub use rustix::io::Errno;
 
 pub type Result<T> = core::result::Result<T, HoarderError>;
 

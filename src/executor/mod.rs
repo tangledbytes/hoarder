@@ -1,12 +1,12 @@
-extern crate alloc;
-
-use alloc::{collections::VecDeque, vec::Vec};
 use core::mem::MaybeUninit;
 
 use crate::{
     error::{HoarderError, Result},
     io::IO,
-    mem::{BufferPool, ObjectHandle, ObjectPool},
+    mem::{
+        BufferPool, ObjectHandle, ObjectPool,
+        collections::{Array, RingBuffer},
+    },
     protocol::executor_protocol::{ExecutorContext, MachineEvent, MachineIntent},
     state_machine::{conn_handler::ConnHandler, tcp_server::TcpServer},
 };
@@ -19,7 +19,7 @@ pub struct Executor<Io: IO> {
     tcp_listener_pool: ObjectPool<TcpServer, TCP_SERVER>,
     conn_handler_pool: ObjectPool<ConnHandler, CONN_HANDLER>,
     io_bufs: BufferPool,
-    run_queues: [VecDeque<RunQueueEvent>; 2],
+    run_queues: [RingBuffer<RunQueueEvent>; 2],
     intents: [MaybeUninit<MachineIntent>; 16],
     current_run_queue: usize,
 }
@@ -29,14 +29,14 @@ where
     Io: IO,
 {
     pub fn new(io: Io, listeners: u32, conn_handlers: u32, buf_count: u32) -> Self {
-        let run_queues_size = conn_handlers as usize;
+        let run_queues_size = conn_handlers as usize * 2;
 
         let tcp_listener_pool = ObjectPool::new(listeners);
         let conn_handler_pool = ObjectPool::new(conn_handlers);
         let io_bufs = BufferPool::new(buf_count);
         let run_queues = [
-            VecDeque::with_capacity(run_queues_size),
-            VecDeque::with_capacity(run_queues_size),
+            RingBuffer::new(run_queues_size),
+            RingBuffer::new(run_queues_size),
         ];
 
         Self {
@@ -57,7 +57,7 @@ where
         loop {
             // Drain the current queue
             while let Some(RunQueueEvent { reason, handle }) =
-                self.run_queues[self.current_run_queue].pop_back()
+                self.run_queues[self.current_run_queue].pop()
             {
                 let intents = match handle.pool_id() {
                     TCP_SERVER => match self.tcp_listener_pool.get_mut(handle) {
@@ -106,10 +106,12 @@ where
             // Drain the completion queue
             let next_run_queue_idx = self.next_run_queue_idx();
             while let Some(cqe) = self.io.completion().next() {
-                self.run_queues[next_run_queue_idx].push_back(RunQueueEvent {
-                    reason: MachineEvent::IoCompleted(cqe.result(), cqe.flags()),
-                    handle: cqe.user_data().try_into().unwrap(),
-                });
+                self.run_queues[next_run_queue_idx]
+                    .push(RunQueueEvent {
+                        reason: MachineEvent::IoCompleted(cqe.result(), cqe.flags()),
+                        handle: cqe.user_data().try_into().unwrap(),
+                    })
+                    .unwrap();
             }
 
             // Switch run queue
@@ -121,10 +123,12 @@ where
         for intent in &self.intents[..intents] {
             match unsafe { intent.assume_init_ref() } {
                 MachineIntent::Retry => {
-                    self.run_queues[self.next_run_queue_idx()].push_back(RunQueueEvent {
-                        reason: MachineEvent::Spawn,
-                        handle,
-                    });
+                    self.run_queues[self.next_run_queue_idx()]
+                        .push(RunQueueEvent {
+                            reason: MachineEvent::Spawn,
+                            handle,
+                        })
+                        .unwrap();
                 }
                 MachineIntent::SubmitMultishotAccept(fd) => {
                     let entry = io_uring::opcode::AcceptMulti::new(*fd)
@@ -138,20 +142,29 @@ where
                         .conn_handler_pool
                         .spawn(ConnHandler::new(*&fixed.0))
                         .unwrap();
-                    self.run_queues[self.current_run_queue].push_back(RunQueueEvent {
-                        reason: MachineEvent::Spawn,
-                        handle,
-                    });
+                    self.run_queues[self.current_run_queue]
+                        .push(RunQueueEvent {
+                            reason: MachineEvent::Spawn,
+                            handle,
+                        })
+                        .unwrap();
                 }
                 MachineIntent::SubmitRecv(fixed, buffer_id, offset) => {
                     let offset = *offset as usize;
                     let buf_size = self.io_bufs.pool().buf_size;
 
                     assert!(offset < buf_size);
-                    let buf = &mut self.io_bufs.get_mut(*buffer_id).unwrap()[offset..] as *mut [u8] as *mut u8;
-                    let entry = io_uring::opcode::Recv::new(*fixed, buf, (buf_size - offset) as _)
-                        .build()
-                        .user_data(handle.into());
+                    let buf = self.io_bufs.get_mut(*buffer_id).unwrap()[offset..].as_mut_ptr();
+                    let remaining_len = (buf_size - offset) as u32;
+
+                    let entry = io_uring::opcode::ReadFixed::new(
+                        *fixed,
+                        buf,
+                        remaining_len,
+                        buffer_id.0.index as _,
+                    )
+                    .build()
+                    .user_data(handle.into());
                     self.io.enqueue(&entry).unwrap();
                 }
             }
@@ -171,23 +184,26 @@ where
             .tcp_listener_pool
             .spawn(TcpServer::new("0.0.0.0:3000", 4096))
             .unwrap();
-        self.run_queues[self.current_run_queue].push_back(RunQueueEvent {
-            handle,
-            reason: MachineEvent::Spawn,
-        });
+        self.run_queues[self.current_run_queue]
+            .push(RunQueueEvent {
+                handle,
+                reason: MachineEvent::Spawn,
+            })
+            .unwrap();
     }
 
     fn setup(&mut self) -> Result<()> {
         self.io
             .register_files(self.conn_handler_pool.capacity() as _)?;
 
-        let bufs = (0..self.io_bufs.pool().count)
-            .map(|idx| libc::iovec {
+        let sz = self.io_bufs.pool().count;
+        let bufs = Array::from_fixed_iter(
+            sz,
+            (0..sz).map(|idx| libc::iovec {
                 iov_base: self.io_bufs.pool().buf_ptr(idx) as *mut libc::c_void,
                 iov_len: 0x1000,
-            })
-            .collect::<Vec<libc::iovec>>();
-
+            }),
+        );
         unsafe { self.io.register_buffers(&bufs) }
     }
 }

@@ -1,9 +1,15 @@
 extern crate alloc;
 
-use alloc::{vec, vec::Vec};
+pub mod collections;
+
+use alloc::vec::Vec;
 use core::{alloc::Layout, ptr::NonNull};
 
-use crate::error::{HoarderError, Result};
+use crate::{
+    error::{HoarderError, Result},
+    mem::collections::RingBuffer,
+};
+use collections::Array;
 
 #[derive(Debug)]
 pub struct AlignedBuffers {
@@ -69,8 +75,8 @@ pub struct GenId {
 }
 
 pub struct GenAlloc {
-    generation: Vec<u32>,
-    free_list: Vec<u32>,
+    generation: Array<u32>,
+    free_list: RingBuffer<u32>,
 }
 
 impl GenAlloc {
@@ -81,8 +87,8 @@ impl GenAlloc {
         let mask = if mask == 0 { u32::MAX } else { mask };
 
         let capacity = capacity & mask;
-        let generation = vec![0; capacity as usize];
-        let free_list = (0..capacity).rev().collect();
+        let generation = Array::new(0, capacity as usize);
+        let free_list = RingBuffer::from_fixed_iter(capacity as _, (0..capacity).rev());
         Self {
             generation,
             free_list,
@@ -116,7 +122,7 @@ impl GenAlloc {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct BufferHandle(GenId);
+pub struct BufferHandle(pub GenId);
 
 pub struct BufferPool<const BUF_SIZE: usize = 0x1000, const ALIGN: usize = 0x1000> {
     pool: AlignedBuffers,

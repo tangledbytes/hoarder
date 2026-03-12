@@ -7,7 +7,7 @@ Hoarder is a educational project and is supposed to be apart of a bigger project
 The idea is to experiment with:
 1. io_uring:
 	1. Zero Copy I/O to disk.
-	2. Zero Copy O to network (I needs NIC support, I don't have that).
+	2. Zero Copy O to network (It needs NIC support, I don't have that).
 	3. Experiments with single threaded event loop with multi-threaded IO. I am not intuitively convinced that such setup can exhaust
 	bigger machines.
 2. Testing:
