@@ -22,6 +22,8 @@ pub(crate) mod executor_protocol {
         /// the next tick.
         Retry,
 
+        Terminate,
+
         /// SpawnConnHandler will attempt to spawn
         /// a connection handler which will listen
         /// on the given DIRECT_DESCRIPTOR_INDEX
@@ -55,10 +57,10 @@ pub(crate) mod executor_protocol {
 }
 
 pub mod network_protocol {
-    use zerocopy::{FromBytes, Immutable, KnownLayout};
+    use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unalign};
 
-    #[derive(Debug, FromBytes, KnownLayout, Immutable)]
-    #[repr(C)]
+    #[derive(Debug, FromBytes, KnownLayout, Immutable, IntoBytes, PartialEq)]
+    #[repr(packed)]
     pub struct MsgHeader {
         pub magic: u32,
         pub cmd: u8,

@@ -167,6 +167,13 @@ where
                     .user_data(handle.into());
                     self.io.enqueue(&entry).unwrap();
                 }
+                MachineIntent::Terminate => {
+                    match handle.pool_id() {
+                        TCP_SERVER => self.tcp_listener_pool.despawn(handle),
+                        CONN_HANDLER => self.conn_handler_pool.despawn(handle),
+                        _ => unreachable!(),
+                    };
+                }
             }
         }
     }
