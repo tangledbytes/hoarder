@@ -37,7 +37,9 @@ where
         };
         Self { ptr, size }
     }
+}
 
+impl<T> Array<T> {
     pub fn from_fixed_iter(size: usize, mut iter: impl Iterator<Item = T>) -> Self {
         assert!(size < isize::MAX as usize);
         let layout = Layout::array::<T>(size).unwrap();
