@@ -1,11 +1,11 @@
 pub(crate) mod executor_protocol {
     use core::mem::MaybeUninit;
 
-    use crate::mem::{BufferPool, BufferHandle};
+    use hoarder_collections::alloc::{BufferHandle, BufferPool};
 
     pub type IoResult = i32;
     pub type IoFlag = u32;
-    pub use io_uring::{
+    pub use hoarder_io::io_uring::{
         cqueue::more as more_io,
         types::{Fd, Fixed},
     };

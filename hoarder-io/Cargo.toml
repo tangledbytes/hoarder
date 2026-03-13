@@ -1,0 +1,9 @@
+[package]
+name = "hoarder-io"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+io-uring = "0.7.11"
+libc = { version = "0.2.183", default-features = false }
+hoarder-common ={ path = "../hoarder-common" }

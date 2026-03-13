@@ -1,4 +1,6 @@
 [workspace]
+resolver = "3"
+
 members = [
-    "hoarder-blob",
+    "hoarder-blob", "hoarder-collections", "hoarder-common", "hoarder-io", 
 ]

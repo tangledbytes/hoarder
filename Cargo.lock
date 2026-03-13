@@ -113,17 +113,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "hoarder"
+name = "hoarder-blob"
 version = "0.1.0"
 dependencies = [
  "env_logger",
- "io-uring",
+ "hoarder-collections",
+ "hoarder-common",
+ "hoarder-io",
  "libc",
  "log",
  "rustix",
  "thiserror",
  "zerocopy",
  "zerocopy-derive",
+]
+
+[[package]]
+name = "hoarder-collections"
+version = "0.1.0"
+dependencies = [
+ "hoarder-common",
+]
+
+[[package]]
+name = "hoarder-common"
+version = "0.1.0"
+
+[[package]]
+name = "hoarder-io"
+version = "0.1.0"
+dependencies = [
+ "hoarder-common",
+ "io-uring",
+ "libc",
 ]
 
 [[package]]

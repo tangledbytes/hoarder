@@ -1,15 +1,13 @@
 extern crate alloc;
 
-pub mod collections;
-
 use alloc::vec::Vec;
 use core::{alloc::Layout, ptr::NonNull};
 
-use crate::{
+use hoarder_common::{
     error::{HoarderError, Result},
-    mem::collections::RingBuffer,
 };
-use collections::Array;
+
+use crate::collections::{RingBuffer, Array};
 
 #[derive(Debug)]
 pub struct AlignedBuffers {

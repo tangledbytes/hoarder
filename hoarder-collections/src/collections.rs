@@ -7,7 +7,7 @@ use core::{
     ptr::NonNull,
 };
 
-use crate::error::{HoarderError, Result};
+use hoarder_common::error::{HoarderError, Result};
 
 pub struct Array<T> {
     ptr: NonNull<T>,
@@ -266,19 +266,15 @@ mod tests {
     fn test_ring_buffer_wrap_around() {
         let mut rb = RingBuffer::new(3);
 
-        // Push 3 elements (fills buffer)
         rb.push(1).unwrap();
         rb.push(2).unwrap();
         rb.push(3).unwrap();
 
-        // Pop 1 element (frees 1 slot)
         assert_eq!(rb.pop(), Some(1));
 
-        // Push 1 element (wraps around write_idx to 0)
         rb.push(4).unwrap();
         assert!(rb.is_full());
 
-        // Pop remaining elements (wraps around read_idx)
         assert_eq!(rb.pop(), Some(2));
         assert_eq!(rb.pop(), Some(3));
         assert_eq!(rb.pop(), Some(4));

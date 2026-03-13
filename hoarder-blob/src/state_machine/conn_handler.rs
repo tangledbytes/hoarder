@@ -1,10 +1,8 @@
+use hoarder_collections::alloc::BufferHandle;
+use hoarder_common::error::{self, HoarderError};
 use zerocopy::{FromBytes, KnownLayout};
 
-use crate::{
-    error::{self, HoarderError, Errno},
-    mem::BufferHandle,
-    protocol::{executor_protocol::*, network_protocol::MsgHeader},
-};
+use crate::protocol::{executor_protocol::*, network_protocol::MsgHeader};
 
 pub struct ConnHandler {
     pub state: ConnHandlerState,
@@ -57,7 +55,7 @@ impl ConnHandler {
             None => {
                 ctx.submit_intent(MachineIntent::Retry);
                 ConnHandlerState::Init
-            },
+            }
         }
     }
 
@@ -84,23 +82,38 @@ impl ConnHandler {
     }
 
     fn handle_io_error(&mut self, err: i32, ctx: &mut ExecutorContext) {
-        match Errno::from_raw_os_error(-err) {
-            Errno::INTR | Errno::AGAIN | Errno::NOBUFS | Errno::NOMEM | Errno::TIMEDOUT => {
-                self.recv(ctx);
-            },
-            Errno::BADF | Errno::FAULT | Errno::INVAL | Errno::NOTSOCK | Errno::AFNOSUPPORT | Errno::OPNOTSUPP => {
-                panic!("unexpected IO error encountered");
-            },
-            Errno::IO | Errno::CONNRESET | Errno::NOTCONN | Errno::SHUTDOWN | Errno::CONNABORTED | Errno::NETDOWN | Errno::NETUNREACH | Errno::NETRESET | Errno::TIMEDOUT => {
-                self.shutdown(ctx);
-                ctx.submit_intent(MachineIntent::Terminate);
-            },
-            _ => {},
-        }
+        // match Errno::from_raw_os_error(-err) {
+        //     Errno::INTR | Errno::AGAIN | Errno::NOBUFS | Errno::NOMEM | Errno::TIMEDOUT => {
+        //         self.recv(ctx);
+        //     }
+        //     Errno::BADF
+        //     | Errno::FAULT
+        //     | Errno::INVAL
+        //     | Errno::NOTSOCK
+        //     | Errno::AFNOSUPPORT
+        //     | Errno::OPNOTSUPP => {
+        //         panic!("unexpected IO error encountered");
+        //     }
+        //     Errno::IO
+        //     | Errno::CONNRESET
+        //     | Errno::NOTCONN
+        //     | Errno::SHUTDOWN
+        //     | Errno::CONNABORTED
+        //     | Errno::NETDOWN
+        //     | Errno::NETUNREACH
+        //     | Errno::NETRESET
+        //     | Errno::TIMEDOUT => {
+        //         self.shutdown(ctx);
+        //         ctx.submit_intent(MachineIntent::Terminate);
+        //     }
+        //     _ => {}
+        // }
+        todo!()
     }
 
     fn shutdown(&mut self, ctx: &mut ExecutorContext) {
-        self.buf_handle.and_then(|handle| Some(ctx.buffers.free(handle)));
+        self.buf_handle
+            .and_then(|handle| Some(ctx.buffers.free(handle)));
         self.offset = 0;
     }
 
@@ -124,10 +137,10 @@ mod test {
     use core::panic::AssertUnwindSafe;
     use std::sync::Once;
 
+    use hoarder_collections::alloc::BufferPool;
     use zerocopy::IntoBytes;
 
     use crate::{
-        mem::BufferPool,
         protocol::{
             executor_protocol::{ExecutorContext, MachineEvent, MachineIntent},
             network_protocol::MsgHeader,
@@ -225,23 +238,16 @@ mod test {
 
         let mut ch = ConnHandler::new(1);
         ch.process_event(ctx, MachineEvent::Spawn);
-        assert!(matches!(
-            ch.state,
-            ConnHandlerState::Recv(_)
-        ));
+        assert!(matches!(ch.state, ConnHandlerState::Recv(_)));
         ctx.len = 0;
 
-        ctx.buffers
-            .get_mut(ch.buf_handle())
-            .unwrap()
-            [..5]
-            .copy_from_slice(bytes);
+        ctx.buffers.get_mut(ch.buf_handle()).unwrap()[..5].copy_from_slice(bytes);
         ch.process_event(ctx, MachineEvent::IoCompleted(bytes.len() as i32, 0));
         match ch.state {
             ConnHandlerState::Recv(RecvPhase::ReceivingBody { header }) => {
                 assert_eq!(header, hdr);
-            },
-            _ => assert!(false)
+            }
+            _ => assert!(false),
         }
         ctx.len = 0;
     }

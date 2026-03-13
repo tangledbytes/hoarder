@@ -1,10 +1,8 @@
 use core::str::FromStr;
+use hoarder_common::error::{HoarderError, Result};
 use rustix::{fd::IntoRawFd, net::*};
 
-use crate::{
-    error::{HoarderError, Result},
-    protocol::executor_protocol::*,
-};
+use crate::protocol::executor_protocol::*;
 
 pub struct TcpServer {
     pub state: TcpServerState,
@@ -69,10 +67,14 @@ impl TcpServer {
             SocketAddr::V6(_) => AddressFamily::INET6,
         };
 
-        let fd = socket(domain, SocketType::STREAM, None)?;
-        sockopt::set_socket_reuseaddr(&fd, true)?;
-        bind(&fd, &SocketAddrAny::from(parsed_addr))?;
-        listen(&fd, self.backlog as i32)?;
+        let fd = socket(domain, SocketType::STREAM, None)
+            .map_err(|e| HoarderError::IoError(e.raw_os_error()))?;
+        sockopt::set_socket_reuseaddr(&fd, true)
+            .map_err(|e| HoarderError::IoError(e.raw_os_error()))?;
+        bind(&fd, &SocketAddrAny::from(parsed_addr))
+            .map_err(|e| HoarderError::IoError(e.raw_os_error()))?;
+        listen(&fd, self.backlog as i32).map_err(|e| HoarderError::IoError(e.raw_os_error()))?;
+
         self.listener_fd = fd.into_raw_fd();
         Ok(())
     }

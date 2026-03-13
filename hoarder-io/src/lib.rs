@@ -1,5 +1,9 @@
-use crate::error::{HoarderError, Result};
-use io_uring::{self, IoUring, cqueue::Entry as CQE, squeue::Entry as SQE};
+#![no_std]
+
+use core::ops::Deref;
+
+use hoarder_common::error::{HoarderError, Result};
+pub use io_uring::{self, IoUring, cqueue::Entry as CQE, squeue::Entry as SQE, opcode};
 
 /// IO trait is a generic trait which intentionally resembles io_uring
 /// API and is intended to in general encompass IO which takes
@@ -26,7 +30,7 @@ pub trait IO {
     fn register_files(&mut self, nr: u32) -> Result<()>;
 
     /// Register in-memory fixed buffers for I/O with the kernel.
-    unsafe fn register_buffers(&mut self, bufs: &[libc::iovec]) -> Result<()>;
+    unsafe fn register_buffers(&mut self, bufs: &impl Deref<Target = [libc::iovec]>) -> Result<()>;
 }
 
 /// UringIO is intended as a concrete implemention of the IO
@@ -84,9 +88,10 @@ impl IO for UringIO {
         Ok(())
     }
 
-    unsafe fn register_buffers(&mut self, bufs: &[libc::iovec]) -> Result<()> {
+    unsafe fn register_buffers(&mut self, bufs: &impl Deref<Target = [libc::iovec]>) -> Result<()> {
         let _ = unsafe { self.ring.submitter().register_buffers(bufs) }
             .map_err(|e| HoarderError::from(e.raw_os_error().unwrap()))?;
         Ok(())
     }
 }
+
