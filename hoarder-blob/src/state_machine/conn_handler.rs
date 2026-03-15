@@ -1,5 +1,5 @@
 use hoarder_collections::alloc::BufferHandle;
-use hoarder_common::error::{self, HoarderError};
+use hoarder_common::error::{self, Errno, HoarderError};
 use zerocopy::{FromBytes, KnownLayout};
 
 use crate::protocol::{executor_protocol::*, network_protocol::MsgHeader};
@@ -11,13 +11,15 @@ pub struct ConnHandler {
     offset: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ConnHandlerState {
     Init,
     Recv(RecvPhase),
+    Closing,
+    Closed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum RecvPhase {
     ReceivingHeader,
     ReceivingBody { header: MsgHeader },
@@ -40,6 +42,13 @@ impl ConnHandler {
             (MachineEvent::IoCompleted(res, _), ConnHandlerState::Recv(_)) => {
                 self.on_recv(ctx, res)
             }
+            (MachineEvent::IoCompleted(res, _), ConnHandlerState::Closing) => {
+                self.on_closing(ctx, res)
+            }
+            (_, ConnHandlerState::Closed) => {
+                hoarder_log::hdebug!("Received event while connection is closed");
+                ConnHandlerState::Closed
+            }
             (_, _) => unreachable!(),
         };
         hoarder_log::hdebug!("recv state - {:?}", self.state);
@@ -60,9 +69,13 @@ impl ConnHandler {
     }
 
     fn on_recv(&mut self, ctx: &mut ExecutorContext, res: i32) -> ConnHandlerState {
+        if res == 0 {
+            self.close(ctx);
+            return ConnHandlerState::Closing;
+        }
+
         let state = if res < 0 {
-            self.handle_io_error(res, ctx);
-            ConnHandlerState::Recv(RecvPhase::ReceivingHeader)
+            self.handle_io_error(res, ctx)
         } else {
             self.offset += res as u32;
             let hdr_size = core::mem::size_of::<MsgHeader>();
@@ -81,40 +94,55 @@ impl ConnHandler {
         state
     }
 
-    fn handle_io_error(&mut self, err: i32, ctx: &mut ExecutorContext) {
-        // match Errno::from_raw_os_error(-err) {
-        //     Errno::INTR | Errno::AGAIN | Errno::NOBUFS | Errno::NOMEM | Errno::TIMEDOUT => {
-        //         self.recv(ctx);
-        //     }
-        //     Errno::BADF
-        //     | Errno::FAULT
-        //     | Errno::INVAL
-        //     | Errno::NOTSOCK
-        //     | Errno::AFNOSUPPORT
-        //     | Errno::OPNOTSUPP => {
-        //         panic!("unexpected IO error encountered");
-        //     }
-        //     Errno::IO
-        //     | Errno::CONNRESET
-        //     | Errno::NOTCONN
-        //     | Errno::SHUTDOWN
-        //     | Errno::CONNABORTED
-        //     | Errno::NETDOWN
-        //     | Errno::NETUNREACH
-        //     | Errno::NETRESET
-        //     | Errno::TIMEDOUT => {
-        //         self.shutdown(ctx);
-        //         ctx.submit_intent(MachineIntent::Terminate);
-        //     }
-        //     _ => {}
-        // }
-        todo!()
+    fn on_closing(&mut self, ctx: &mut ExecutorContext, res: i32) -> ConnHandlerState {
+        if res == 0 {
+            ctx.submit_intent(MachineIntent::Terminate);
+            ConnHandlerState::Closed
+        } else {
+            // Try closing again
+            self.close(ctx);
+            ConnHandlerState::Closing
+        }
     }
 
-    fn shutdown(&mut self, ctx: &mut ExecutorContext) {
+    fn handle_io_error(&mut self, err: i32, ctx: &mut ExecutorContext) -> ConnHandlerState {
+        match Errno::from_raw_syscall_error(err) {
+            Errno::EINTR | Errno::EAGAIN | Errno::ENOBUFS | Errno::ENOMEM | Errno::ETIMEDOUT => {
+                self.recv(ctx);
+                self.state
+            }
+            Errno::EBADF
+            | Errno::EFAULT
+            | Errno::EINVAL
+            | Errno::ENOTSOCK
+            | Errno::EAFNOSUPPORT
+            | Errno::EOPNOTSUPP => {
+                panic!("unexpected IO error encountered");
+            }
+            Errno::EIO
+            | Errno::ECONNRESET
+            | Errno::ENOTCONN
+            | Errno::ESHUTDOWN
+            | Errno::ECONNABORTED
+            | Errno::ENETDOWN
+            | Errno::ENETUNREACH
+            | Errno::ENETRESET => {
+                self.close(ctx);
+                ConnHandlerState::Closing
+            }
+            _ => {
+                hoarder_log::hwarn!("unexpected error err={}", err);
+                // Just return the current state - no transitions
+                self.state
+            }
+        }
+    }
+
+    fn close(&mut self, ctx: &mut ExecutorContext) {
         self.buf_handle
             .and_then(|handle| Some(ctx.buffers.free(handle)));
         self.offset = 0;
+        ctx.submit_intent(MachineIntent::CloseFixed(self.socket));
     }
 
     fn buf_handle(&self) -> BufferHandle {
@@ -206,13 +234,19 @@ mod test {
         assert!(matches!(ch.state, ConnHandlerState::Recv(_)));
         ctx.len = 0;
 
-        ch.process_event(ctx, MachineEvent::IoCompleted(0, 0));
+        let test_data = "TEST".as_bytes();
+        ctx.buffers.get_mut(ch.buf_handle()).unwrap()[..test_data.len()].copy_from_slice(test_data);
+        ch.process_event(ctx, MachineEvent::IoCompleted(test_data.len() as i32, 0));
         assert!(matches!(ch.state, ConnHandlerState::Recv(_)));
         assert!(ctx.len == 1);
         ctx.len = 0;
 
-        ch.process_event(ctx, MachineEvent::IoCompleted(-1, 0));
-        assert!(matches!(ch.state, ConnHandlerState::Recv(_)));
+        ch.process_event(ctx, MachineEvent::IoCompleted(0, 0));
+        assert!(matches!(ch.state, ConnHandlerState::Closing));
+        ctx.len = 0;
+
+        ch.process_event(ctx, MachineEvent::IoCompleted(0, 0));
+        assert!(matches!(ch.state, ConnHandlerState::Closed));
         ctx.len = 0;
     }
 

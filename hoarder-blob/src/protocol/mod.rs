@@ -22,7 +22,13 @@ pub(crate) mod executor_protocol {
         /// the next tick.
         Retry,
 
+        /// Terminate the machine should put the machine
+        /// back into the machine pool for reuse
         Terminate,
+
+        /// CloseFixed should take a Fixed index and should
+        /// close it
+        CloseFixed(Fixed),
 
         /// SpawnConnHandler will attempt to spawn
         /// a connection handler which will listen
@@ -59,7 +65,7 @@ pub(crate) mod executor_protocol {
 pub mod network_protocol {
     use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout, Unalign};
 
-    #[derive(Debug, FromBytes, KnownLayout, Immutable, IntoBytes, PartialEq)]
+    #[derive(Debug, FromBytes, KnownLayout, Immutable, IntoBytes, PartialEq, Copy, Clone)]
     #[repr(packed)]
     pub struct MsgHeader {
         pub magic: u32,

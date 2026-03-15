@@ -175,6 +175,12 @@ where
                         _ => unreachable!(),
                     };
                 }
+                MachineIntent::CloseFixed(fixed) => {
+                    let entry = io_uring::opcode::Close::new(*fixed)
+                        .build()
+                        .user_data(handle.into());
+                    self.io.enqueue(&entry).unwrap();
+                }
             }
         }
     }
