@@ -3,16 +3,13 @@
 extern crate alloc;
 
 use alloc::sync::Arc; // ??
-use core::{
-    cell::UnsafeCell,
-    sync::atomic::{AtomicPtr, AtomicU16, Ordering},
-};
+use core::sync::atomic::{AtomicPtr, AtomicU16, AtomicUsize, Ordering};
 
 use hoarder_collections::alloc::AlignedBuffers;
 use hoarder_common::error::{HoarderError, Result};
 
 const WRITER_BIT: u16 = 1 << 8;
-const INDEX_MASK: u16 = 0x00FF;
+const INDEX_MASK: u16 = 1;
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,7 +84,7 @@ impl core::fmt::Write for FmtBuf<'_> {
 
 pub struct Logger {
     bufs: [AlignedBuffers; 2],
-    offsets: [UnsafeCell<usize>; 2],
+    offsets: [AtomicUsize; 2],
     state: State,
 }
 
@@ -113,7 +110,7 @@ impl Logger {
             AlignedBuffers::new(1, buf_size, 0x1000)?,
             AlignedBuffers::new(1, buf_size, 0x1000)?,
         ];
-        let offsets = [UnsafeCell::new(0), UnsafeCell::new(0)];
+        let offsets = [AtomicUsize::new(0), AtomicUsize::new(0)];
 
         let logger = Arc::new(Logger {
             bufs,
@@ -147,8 +144,8 @@ impl Producer {
                 .is_ok()
             {
                 // If the data cannot fit in the buffer then simply return
-                // SAFETY: Producer has exclusive access to the active_buffer_idx
-                let offset = unsafe { *self.shared.offsets[active_buffer_idx as usize].get() };
+                let offset =
+                    self.shared.offsets[active_buffer_idx as usize].load(Ordering::Acquire);
                 if offset
                     .checked_add(data.len())
                     .map_or(true, |end| end > self.buf_size)
@@ -169,10 +166,8 @@ impl Producer {
                         .copy_from_slice(data)
                 };
 
-                // SAFETY: Producer has exclusive access to the active_buffer_idx
-                unsafe {
-                    *self.shared.offsets[active_buffer_idx as usize].get() += data.len();
-                }
+                self.shared.offsets[active_buffer_idx as usize]
+                    .fetch_add(data.len(), Ordering::Release);
 
                 // Once done writing, revert the active writer state
                 // so that the consumer can consume the buffer when
@@ -182,6 +177,24 @@ impl Producer {
                     .0
                     .fetch_and(!WRITER_BIT, Ordering::Release);
                 return Ok(());
+            }
+        }
+    }
+
+    /// panic_flush will forcefully read the data from the buffers and
+    /// is intended to be used by panic hooks to dump data before crashing
+    pub fn panic_flush(&self, mut cb: impl FnMut(&[u8])) {
+        for idx in 0..=1 {
+            // SAFE: Using atomic load. No data races!
+            let offset = self.shared.offsets[idx].load(Ordering::Relaxed);
+
+            if offset > 0 {
+                // SAFE: Concurrent reads to the buffer are fine, and we now
+                // have a safely acquired offset boundary.
+                let data = unsafe {
+                    core::slice::from_raw_parts(self.shared.bufs[idx].buf_ptr(0), offset)
+                };
+                cb(data);
             }
         }
     }
@@ -211,8 +224,8 @@ impl Consumer {
                 .is_ok()
             {
                 // Load offset of the previously active buffer
-                // SAFETY: Consumer has exclusive access to the previous active_buffer_idx
-                let offset = unsafe { *self.shared.offsets[active_buffer_idx as usize].get() };
+                let offset =
+                    self.shared.offsets[active_buffer_idx as usize].load(Ordering::Acquire);
 
                 if offset > 0 {
                     cb(unsafe {
@@ -224,10 +237,7 @@ impl Consumer {
                 }
 
                 // Reset the offset of the consumed buffer
-                // SAFETY: Consumer has exclusive access to the previous active_buffer_idx
-                unsafe {
-                    *self.shared.offsets[active_buffer_idx as usize].get() = 0;
-                }
+                self.shared.offsets[active_buffer_idx as usize].store(0, Ordering::Release);
                 return;
             }
         }
