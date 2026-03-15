@@ -40,6 +40,26 @@ where
 }
 
 impl<T> Array<T> {
+    pub fn new_with_fn(init: impl Fn() -> T, size: usize) -> Self {
+        assert!(size > 0 && size < isize::MAX as usize);
+        let layout = Layout::array::<T>(size).unwrap();
+
+        let ptr = unsafe {
+            let raw_ptr = alloc::alloc::alloc(layout) as *mut T;
+            if raw_ptr.is_null() {
+                alloc::alloc::handle_alloc_error(layout);
+            }
+
+            // Initialize the memory
+            for i in 0..size {
+                core::ptr::write(raw_ptr.add(i), init());
+            }
+
+            NonNull::new_unchecked(raw_ptr)
+        };
+        Self { ptr, size }
+    }
+
     pub fn from_fixed_iter(size: usize, mut iter: impl Iterator<Item = T>) -> Self {
         assert!(size < isize::MAX as usize);
         let layout = Layout::array::<T>(size).unwrap();
@@ -61,7 +81,7 @@ impl<T> Array<T> {
         Self { ptr, size }
     }
 
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.size
     }
 }

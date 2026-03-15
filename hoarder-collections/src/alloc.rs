@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use alloc::vec::Vec;
 use core::{alloc::Layout, ptr::NonNull};
 
 use hoarder_common::{
@@ -50,7 +49,7 @@ impl AlignedBuffers {
         unsafe { self.ptr.as_ptr().add(index * self.buf_size) }
     }
 
-    pub fn buf_ptr_mut(&mut self, index: usize) -> *mut u8 {
+    pub fn buf_ptr_mut(&self, index: usize) -> *mut u8 {
         assert!(index < self.count);
         unsafe { self.ptr.as_ptr().add(index * self.buf_size) }
     }
@@ -105,7 +104,7 @@ impl GenAlloc {
     pub fn free(&mut self, id: GenId) -> bool {
         if self.is_valid(id) {
             self.generation[id.index as usize] += 1;
-            self.free_list.push(id.index);
+            self.free_list.push(id.index).unwrap();
             true
         } else {
             false
@@ -178,7 +177,7 @@ impl<const BUF_SIZE: usize, const ALIGN: usize> BufferPool<BUF_SIZE, ALIGN> {
 }
 
 pub struct ObjectPool<T, const ID: u8> {
-    data: Vec<Option<T>>,
+    data: Array<Option<T>>,
     alloc: GenAlloc,
 }
 
@@ -186,15 +185,14 @@ impl<T, const ID: u8> ObjectPool<T, ID> {
     const MASK: u32 = 0x00FF_FFFF;
 
     pub fn new(capacity: u32) -> Self {
-        let mut data = Vec::with_capacity(capacity as usize);
-        data.resize_with(capacity as usize, || None::<T>);
+        let data = Array::new_with_fn(|| None::<T>, capacity as usize);
 
         let alloc = GenAlloc::new(capacity, Self::MASK);
         Self { data, alloc }
     }
 
     pub const fn capacity(&self) -> u32 {
-        self.data.capacity() as _
+        self.data.len() as _
     }
 
     pub fn spawn(&mut self, object: T) -> Option<ObjectHandle> {
