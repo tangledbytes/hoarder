@@ -42,7 +42,7 @@ impl ConnHandler {
             }
             (_, _) => unreachable!(),
         };
-        log::debug!("recv state - {:?}", self.state);
+        hoarder_log::hdebug!("recv state - {:?}", self.state);
     }
 
     fn on_init(&mut self, ctx: &mut ExecutorContext) -> ConnHandlerState {
@@ -135,7 +135,6 @@ impl ConnHandler {
 mod test {
     extern crate std;
     use core::panic::AssertUnwindSafe;
-    use std::sync::Once;
 
     use hoarder_collections::alloc::BufferPool;
     use zerocopy::IntoBytes;
@@ -147,14 +146,6 @@ mod test {
         },
         state_machine::conn_handler::{ConnHandler, ConnHandlerState, RecvPhase},
     };
-
-    static INIT: Once = Once::new();
-
-    pub fn init_logger() {
-        INIT.call_once(|| {
-            let _ = env_logger::builder().is_test(true).try_init();
-        });
-    }
 
     #[cfg(test)]
     pub struct TestEnv {

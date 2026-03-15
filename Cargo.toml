@@ -2,5 +2,9 @@
 resolver = "3"
 
 members = [
-    "hoarder-blob", "hoarder-collections", "hoarder-common", "hoarder-io", 
+    "hoarder-blob",
+    "hoarder-collections",
+    "hoarder-common",
+    "hoarder-io",
+    "hoarder-log",
 ]

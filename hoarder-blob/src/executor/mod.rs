@@ -63,7 +63,7 @@ where
                 let intents = match handle.pool_id() {
                     TCP_SERVER => match self.tcp_listener_pool.get_mut(handle) {
                         Some(listener) => {
-                            log::debug!("TCP_SERVER {reason:?} {handle:?}",);
+                            hoarder_log::hdebug!("TCP_SERVER {:?} {:?}", reason, handle);
                             let mut ctx = ExecutorContext {
                                 len: 0,
                                 intents: &mut self.intents,
@@ -73,13 +73,13 @@ where
                             ctx.len
                         }
                         None => {
-                            log::warn!("TCP_SERVER MISSING {reason:?} {handle:?}");
+                            hoarder_log::hwarn!("TCP_SERVER MISSING {:?} {:?}", reason, handle);
                             0
                         }
                     },
                     CONN_HANDLER => match self.conn_handler_pool.get_mut(handle) {
                         Some(conn_handler) => {
-                            log::debug!("CONN_HANDLER {reason:?} {handle:?}",);
+                            hoarder_log::hdebug!("CONN_HANDLER {:?} {:?}", reason, handle);
                             let mut ctx = ExecutorContext {
                                 len: 0,
                                 intents: &mut self.intents,
@@ -90,7 +90,7 @@ where
                             ctx.len
                         }
                         None => {
-                            log::warn!("CONN_HANDLER MISSING {reason:?} {handle:?}");
+                            hoarder_log::hwarn!("CONN_HANDLER MISSING {:?} {:?}", reason, handle);
                             0
                         }
                     },

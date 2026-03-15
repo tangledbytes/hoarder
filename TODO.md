@@ -12,14 +12,16 @@ use allocation directly instead it should import everything from the `crate::mem
 heap allocated arrays.
 6. Create a semi-simulated executor which just simulates networking for now. For the implementation of
 disk state machine.
-7. Clean up unused code.
+7. ✅ Clean up unused code.
 8. Add unit tests for all the modules.
-9. Clean up logging and figure out a better way to log.
-	1. Need to figure out how to log without dyanmic allocation.
-	2. Need to figure out **when** to log. Definitely cannot log on hot paths.
+9. ✅ Clean up logging and figure out a better way to log.
+	1. ✅ Need to figure out how to log without dyanmic allocation.
+	2. ✅ Need to figure out **when** to log. Definitely cannot log on hot paths.
 10. Need to do better error handling. Need to differentiate between logical errors and client errors. Most logical
 errors should do a clean exit and client errors should be propagated to the top properly. Right now everything just
 crashes the system, which isn't ideal.
+11. Logger writes only to stdout regardless of log level. Might want to add support for writing to stderr.
+12. Logger should ignore some log levels when logging in `--release` mode.
 
 # Bugs
 1. In src/state_machine/tcp_server.rs, when setting up the listening socket, you convert the safe rustix::fd::OwnedFd into a raw file descriptor:
